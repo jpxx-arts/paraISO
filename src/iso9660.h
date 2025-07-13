@@ -11,7 +11,7 @@
 
 /**
  * @brief Formato de data e hora para uma Entrada de Diretório (7 bytes).
- * @note Conforme a seção 10.1.5 do padrão ECMA-119 (6ª Edição, Junho 2024).
+ * @note Conforme a seção 10.1.6 do padrão ECMA-119 (6ª Edição, Junho 2024).
  */
 typedef struct {
     uint8_t year;       // Anos desde 1900
@@ -25,7 +25,7 @@ typedef struct {
 
 /**
  * @brief Formato de data e hora para o Descritor de Volume (17 bytes).
- * @note Conforme a seção 9.4.4 do padrão ECMA-119 (6ª Edição, Junho 2024).
+ * @note Conforme a seção 9.4.27.2 do padrão ECMA-119 (6ª Edição, Junho 2024).
  */
 typedef struct {
     char   year[4];
@@ -41,7 +41,7 @@ typedef struct {
 /**
  * @brief Representa uma Entrada de Diretório (Directory Record).
  * @brief Descreve um arquivo ou um diretório.
- * @note Conforme a seção 10.1 do padrão ECMA-119 (6ª Edição, Junho 2024).
+ * @note Conforme a seção 10.1.1 do padrão ECMA-119 (6ª Edição, Junho 2024).
  * @note Usa um membro de array flexível para o identificador.
  */
 typedef struct {
@@ -64,7 +64,7 @@ typedef struct {
 /**
  * @brief Representa um registro na Path Table.
  * @brief Cada registro descreve um único diretório no volume.
- * @note Conforme a seção 10.4 do padrão ECMA-119 (6ª Edição, Junho 2024).
+ * @note Conforme a seção 10.4.1 do padrão ECMA-119 (6ª Edição, Junho 2024).
  */
 typedef struct {
     uint8_t  identifier_len;
@@ -77,7 +77,7 @@ typedef struct {
 /**
  * @brief Descritor de Volume Primário (PVD). Contém as informações principais sobre o volume.
  * @brief Localizado no primeiro setor da Área de Dados (LBA 16).
- * @note Conforme a seção 9.4 do padrão ECMA-119 (6ª Edição, Junho 2024).
+ * @note Conforme a seção 9.4.1 do padrão ECMA-119 (6ª Edição, Junho 2024).
  */
 typedef struct {
     uint8_t  type_code;
