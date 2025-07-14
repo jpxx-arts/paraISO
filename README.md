@@ -12,7 +12,8 @@ The implementation uses the Path Table for efficient directory lookups, as well 
 
 ## ✨ Features
 
-  * **`ls_iso`**: Lists files and subdirectories within a specific directory in the ISO image.
+  * **`ls_iso`**: Lists files and subdirectories within a specific directory in the ISO image. Can be applied recursively and can use extension filters.
+    * **`extract mode`**: Extracts files of a directory.
   * **`cat_iso`**: Displays the content of a file from within the ISO image directly to the terminal.
   * **Direct Parsing**: No third-party libraries are used for filesystem manipulation; all logic for reading the PVD, Path Table, and Directory Entries is implemented manually.
 
@@ -57,17 +58,26 @@ Lists the contents of a directory.
 **Syntax:**
 
 ```bash
-./bin/ls_iso <path_to_iso_file> <path_to_directory_in_iso>
+./bin/ls_iso [list|extract] <path_to_iso_file> <path_to_directory_in_iso> [extension]
 ```
 
 **Examples:**
 
 ```bash
-# List the contents of the root directory
-./bin/ls_iso my_image.iso /
-
-# List the contents of a subdirectory
+# List the contents of a directory
 ./bin/ls_iso my_image.iso /EFI/BOOT
+./bin/ls_iso list my_image.iso /EFI/BOOT
+
+# List the files with a specific extension
+./bin/ls_iso my_image.iso /EFI/BOOT .txt
+./bin/ls_iso list my_image.iso /EFI/BOOT .txt
+
+# Extract all files of a directory
+./bin/ls_iso extract my_image.iso /EFI/BOOT
+
+# Extract the files with a specific extension
+./bin/ls_iso extract my_image.iso /EFI/BOOT .txt
+
 ```
 
 ### cat\_iso
