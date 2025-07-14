@@ -1,26 +1,4 @@
 #include "iso9660.h"
-#include <stdlib.h>
-
-void cat_file(FILE *iso_file, const DirectoryEntry *file_entry) {
-    uint32_t size = file_entry->data_length_le;
-    if (size == 0) return;
-
-    fseek(iso_file, file_entry->extent_location_le * LOGICAL_SECTOR_SIZE, SEEK_SET);
-
-    char buffer[4096];
-    size_t bytes_to_read, bytes_read;
-    
-    while (size > 0) {
-        bytes_to_read = (size > sizeof(buffer)) ? sizeof(buffer) : size;
-        bytes_read = fread(buffer, 1, bytes_to_read, iso_file);
-        if (bytes_read > 0) {
-            fwrite(buffer, 1, bytes_read, stdout);
-            size -= bytes_read;
-        } else {
-            break;
-        }
-    }
-}
 
 int main(int argc, char *argv[]) {
     if (argc != 3) {
@@ -30,12 +8,14 @@ int main(int argc, char *argv[]) {
 
     FILE *iso_file = fopen(argv[1], "rb");
     if (!iso_file) {
-        perror("Erro ao abrir o arquivo ISO");
+        fprintf(stderr, "Erro: Nao foi possivel abrir o arquivo ISO '%s'.\n", argv[1]);
+        perror("Detalhes");
         return 1;
     }
     
     PrimaryVolumeDescriptor pvd;
     if (!find_pvd(iso_file, &pvd)) {
+        fprintf(stderr, "Erro: Descritor de volume primario nao encontrado no ISO.\n");
         fclose(iso_file);
         return 1;
     }
