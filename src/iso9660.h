@@ -2,7 +2,15 @@
 #define ISO9660_H
 
 #include <stdio.h>
+#include <unistd.h>
 #include <stdint.h>
+#include <stdbool.h>
+#include <stdlib.h>
+#include <string.h>
+#include <strings.h>
+#include <ctype.h>
+#include <sys/stat.h>
+#include <sys/types.h>
 #include <stdbool.h>
 
 #define LOGICAL_SECTOR_SIZE 2048
@@ -132,6 +140,23 @@ DirectoryEntry* find_directory_entry(FILE *iso_file, const PrimaryVolumeDescript
  * @param iso_file Ponteiro para o arquivo ISO aberto.
  * @param dir_entry Um ponteiro para a DirectoryEntry do diretório a ser listado.
  */
-void list_directory_contents(FILE *iso_file, const DirectoryEntry *dir_entry);
+void list_directory_contents(FILE *iso_file, const DirectoryEntry *dir_entry, const char *extension);
+
+/**
+ * @brief Extrai recursivamente o conteúdo de um diretório da ISO para o sistema de arquivos local.
+ * @param iso_file Ponteiro para o arquivo ISO aberto.
+ * @param dir_entry Ponteiro para a DirectoryEntry do diretório a ser extraído.
+ * @param extension Filtro opcional de extensão (ex: ".EFI"). Passar NULL para extrair tudo.
+ * @note Esta função altera o diretório de trabalho atual (com chdir) para criar a hierarquia de pastas.
+ */
+void extract_directory(FILE *iso_file, const DirectoryEntry *dir_entry, const char *extension);
+
+/**
+ * @brief Exibe o conteúdo de um arquivo da ISO diretamente na saída padrão (terminal).
+ * @param iso_file Ponteiro para o arquivo ISO aberto.
+ * @param file_entry Ponteiro para a DirectoryEntry do arquivo a ser exibido.
+ * @note A entrada fornecida deve ser um arquivo, não um diretório.
+ */
+void cat_file(FILE *iso_file, const DirectoryEntry *file_entry);
 
 #endif // ISO9660_H
