@@ -1,27 +1,27 @@
 #include "iso9660.h"
 
+// Retorna o número do diretório correspondente ao offset de uma entrada na Path Table
+uint16_t offset_to_dir_number(uint8_t *path_table, uint32_t table_size, uint32_t target_offset) {
+    uint32_t offset = 0;
+    uint16_t index = 1;
+
+    while (offset < table_size) {
+        if (offset == target_offset) return index;
+
+        PathTableRecord *entry = (PathTableRecord *)(path_table + offset);
+        uint16_t size = 8 + entry->identifier_len + (entry->identifier_len % 2 != 0);
+        offset += size;
+        index++;
+    }
+
+    return 0; // erro
+}
+
 // Função auxiliar para verificar extensão
 static bool has_extension(const char *name, const char *extension) {
     if (!extension) return true;
     const char *point = strrchr(name, '.');
     return point && strcasecmp(point, extension) == 0;
-}
-
-// Função para comparar nomes de arquivo ISO 9660 (case-insensitive e ignorando a versão ';1' (padrão de sufixo para versão em sistemas antigos))
-static bool compare_iso_identifier(const char* token, const char* iso_name, uint8_t iso_name_len) {
-    size_t token_len = strlen(token);
-    
-    if (token_len == iso_name_len && strncasecmp(token, iso_name, token_len) == 0) {
-        return true;
-    }
-    
-    // Comparação ignorando a versão do arquivo (ex: "README.TXT;1")
-    if (iso_name_len > 2 && iso_name[iso_name_len - 2] == ';') {
-        if (token_len == iso_name_len - 2 && strncasecmp(token, iso_name, token_len) == 0) {
-            return true;
-        }
-    }
-    return false;
 }
 
 bool find_pvd(FILE *iso_file, PrimaryVolumeDescriptor *pvd) {
@@ -38,85 +38,135 @@ bool find_pvd(FILE *iso_file, PrimaryVolumeDescriptor *pvd) {
     return true;
 }
 
-DirectoryEntry* find_directory_entry(FILE *iso_file, const PrimaryVolumeDescriptor *pvd, const char *path) {
-    if (strcmp(path, "/") == 0) {
-        DirectoryEntry *root_entry = malloc(sizeof(DirectoryEntry));
-        if (!root_entry) return NULL;
-        memcpy(root_entry, &pvd->root_directory_entry, sizeof(DirectoryEntry));
-        return root_entry;
-    }
-    
-    // 1. Carregar a Path Table para a memória
-    uint8_t *path_table_buffer = malloc(pvd->path_table_size_le);
-    if (!path_table_buffer) {
-        perror("Erro: Falha ao alocar memoria para a Path Table");
-        return NULL;
-    }
-    fseek(iso_file, pvd->loc_path_table_le * LOGICAL_SECTOR_SIZE, SEEK_SET);
-    if (fread(path_table_buffer, pvd->path_table_size_le, 1, iso_file) != 1) {
-        perror("Erro: Falha ao ler a Path Table");
-        free(path_table_buffer);
-        return NULL;
-    }
-
-    // 2. Navegar na Path Table para encontrar o diretório PAI do alvo final
-    char path_copy[256];
+// Divide o caminho em componentes separados por '/' (ex: "/boot/isolinux/f2" → ["boot", "isolinux", "f2"])
+int split_path(const char *path, char *components[], int max_depth) {
+    static char path_copy[256];
     strncpy(path_copy, path, sizeof(path_copy) - 1);
     path_copy[sizeof(path_copy) - 1] = '\0';
 
-    char *last_component = strrchr(path_copy, '/');
-    if (!last_component) {
-        free(path_table_buffer);
-        return NULL;
+    if (path_copy[0] == '/')
+        memmove(path_copy, path_copy + 1, strlen(path_copy));
+
+    int depth = 0;
+    char *token = strtok(path_copy, "/");
+    while (token && depth < max_depth) {
+        components[depth++] = token;
+        token = strtok(NULL, "/");
     }
-    *last_component = '\0';
-    last_component++;
+    return depth;
+}
 
-    char *parent_path = path_copy;
-    if (strlen(parent_path) == 0) parent_path = "/";
+// Lê a Path Table da imagem ISO para a memória
+uint8_t* read_path_table(FILE *iso_file, const PrimaryVolumeDescriptor *pvd) {
+    uint8_t *buf = malloc(pvd->path_table_size_le);
+    if (!buf) return NULL;
 
-    // Encontra a entrada do diretório pai
-    DirectoryEntry *parent_dir_entry = find_directory_entry(iso_file, pvd, parent_path);
-    free(path_table_buffer);
-
-    if (!parent_dir_entry) {
-        fprintf(stderr, "Erro: Diretorio pai '%s' nao encontrado.\n", parent_path);
-        return NULL;
-    }
-    
-    // 3. Varredura linear dentro do diretório pai para encontrar o alvo final
-    uint32_t dir_size = parent_dir_entry->data_length_le;
-    uint8_t *dir_buffer = malloc(dir_size);
-    if (!dir_buffer) {
-        fprintf(stderr, "Erro: Falha ao alocar memoria para leitura do diretorio.\n");
-        free(parent_dir_entry);
+    fseek(iso_file, pvd->loc_path_table_le * LOGICAL_SECTOR_SIZE, SEEK_SET);
+    if (fread(buf, pvd->path_table_size_le, 1, iso_file) != 1) {
+        free(buf);
         return NULL;
     }
 
-    fseek(iso_file, parent_dir_entry->extent_location_le * LOGICAL_SECTOR_SIZE, SEEK_SET);
-    fread(dir_buffer, dir_size, 1, iso_file);
-    free(parent_dir_entry);
+    return buf;
+}
 
-    DirectoryEntry *found_entry = NULL;
+// Caminha pela Path Table para encontrar o LBA do diretório pai de um caminho
+int resolve_parent_directory(uint8_t *path_table, uint32_t table_size, char **components, int count, uint32_t *extent_out) {
+    uint16_t parent_number = 1;
+    PathTableRecord *match = NULL;
+
+    for (int level = 0; level < count; level++) {
+        uint32_t offset = 0;
+        match = NULL;
+
+        while (offset < table_size) {
+            PathTableRecord *entry = (PathTableRecord *)(path_table + offset);
+            if (entry->parent_dir_number == parent_number &&
+                entry->identifier_len == strlen(components[level]) &&
+                strncasecmp(entry->directory_identifier, components[level], entry->identifier_len) == 0) {
+                match = entry;
+                parent_number = offset_to_dir_number(path_table, table_size, offset);
+                break;
+            }
+            uint16_t size = 8 + entry->identifier_len + (entry->identifier_len % 2 != 0);
+            offset += size;
+        }
+
+        if (!match) return 0;
+    }
+
+    *extent_out = match->extent_location;
+    return 1;
+}
+
+// Varre um diretório buscando um arquivo ou subdiretório com o nome especificado (ignorando sufixo ';1')
+DirectoryEntry* find_in_directory(FILE *iso_file, uint32_t extent_lba, const char *target) {
+    DirectoryEntry *result = NULL;
+    uint32_t size;
+
+    {
+        DirectoryEntry temp;
+        fseek(iso_file, extent_lba * LOGICAL_SECTOR_SIZE, SEEK_SET);
+        fread(&temp, sizeof(DirectoryEntry), 1, iso_file);
+        size = temp.data_length_le;
+    }
+
+    uint8_t *buffer = malloc(size);
+    if (!buffer) return NULL;
+
+    fseek(iso_file, extent_lba * LOGICAL_SECTOR_SIZE, SEEK_SET);
+    fread(buffer, 1, size, iso_file);
+
     uint32_t offset = 0;
-    while(offset < dir_size) {
-        DirectoryEntry *entry = (DirectoryEntry *)(dir_buffer + offset);
+    while (offset < size) {
+        DirectoryEntry *entry = (DirectoryEntry *)(buffer + offset);
         if (entry->length_of_record == 0) break;
 
-        if (compare_iso_identifier(last_component, entry->file_identifier, entry->file_identifier_len)) {
-            found_entry = malloc(entry->length_of_record);
-            if (found_entry) {
-                memcpy(found_entry, entry, entry->length_of_record);
-            } else{
-                fprintf(stderr, "Erro: Falha ao alocar memoria para a entrada de diretorio encontrada.\n");
-            }
+        char entry_name[256] = {0};
+        int len = 0;
+        for (int i = 0; i < entry->file_identifier_len && len < 255; ++i) {
+            if (entry->file_identifier[i] == ';') break;
+            entry_name[len++] = entry->file_identifier[i];
+        }
+        entry_name[len] = '\0';
+
+        if (strcasecmp(entry_name, target) == 0) {
+            result = malloc(entry->length_of_record);
+            if (result)
+                memcpy(result, entry, entry->length_of_record);
             break;
         }
+
         offset += entry->length_of_record;
     }
-    
-    free(dir_buffer);
-    return found_entry;
+
+    free(buffer);
+    return result;
+}
+
+DirectoryEntry* find_directory_entry(FILE *iso_file, const PrimaryVolumeDescriptor *pvd, const char *path) {
+    if (strcmp(path, "/") == 0) {
+        DirectoryEntry *root = malloc(sizeof(DirectoryEntry));
+        if (!root) return NULL;
+        memcpy(root, &pvd->root_directory_entry, sizeof(DirectoryEntry));
+        return root;
+    }
+
+    char *components[64];
+    int depth = split_path(path, components, 64);
+    if (depth == 0) return NULL;
+
+    uint8_t *path_table = read_path_table(iso_file, pvd);
+    if (!path_table) return NULL;
+
+    uint32_t parent_extent;
+    if (!resolve_parent_directory(path_table, pvd->path_table_size_le, components, depth - 1, &parent_extent)) {
+        free(path_table);
+        return NULL;
+    }
+
+    free(path_table);
+    return find_in_directory(iso_file, parent_extent, components[depth - 1]);
 }
 
 void list_directory_contents(FILE *iso_file, const DirectoryEntry *dir_entry, const char *extension) {
