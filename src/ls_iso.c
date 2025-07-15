@@ -17,12 +17,6 @@ int main(int argc, char *argv[]) {
         arg_offset = 2;
     }
 
-    if (argc - arg_offset < 2) {
-        fprintf(stderr, "Erro: Argumentos insuficientes para <file.iso> e <path>.\n");
-        fprintf(stderr, "Uso: %s [list|extract] <file.iso> <path> [extension]\n", argv[0]);
-        return 1;
-    }
-
     file_iso = argv[arg_offset];
     path = argv[arg_offset + 1];
 
